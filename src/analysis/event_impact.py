@@ -2,8 +2,12 @@
 
 Measures how classified events affect crypto prices at various time horizons.
 Answers: "Do specific event types reliably move prices?"
+
+Operates on event_clusters (deduplicated) when available, falling back to
+raw events for backward compatibility.
 """
 
+import json
 import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -54,8 +58,42 @@ class EventImpactAnalyzer:
         self.min_sample_size: int = cfg.get("min_sample_size", 10)
         self.significance_level: float = cfg.get("significance_level", 0.05)
 
+    def _has_clusters(self) -> bool:
+        """Check if event_clusters table has data."""
+        try:
+            with self.db.connect() as conn:
+                count = conn.execute("SELECT COUNT(*) FROM event_clusters").fetchone()[0]
+                return count > 0
+        except Exception:
+            return False
+
+    def _get_cluster_events(self) -> list[dict[str, Any]]:
+        """Get events from event_clusters table.
+
+        Returns:
+            List of cluster dicts with same shape as events.
+        """
+        query = """
+            SELECT id, category, severity, first_detected_at AS detected_at,
+                   assets_affected, representative_headline AS summary,
+                   article_count, novelty_score, sentiment
+            FROM event_clusters
+            ORDER BY first_detected_at DESC
+            LIMIT 10000
+        """
+        with self.db.connect() as conn:
+            rows = conn.execute(query).fetchall()
+            results = []
+            for r in rows:
+                d = dict(r)
+                d["assets_affected"] = json.loads(d.get("assets_affected", "[]"))
+                results.append(d)
+            return results
+
     def compute_event_moves(self) -> list[dict[str, Any]]:
         """Compute price moves for all events that have price data.
+
+        Uses event_clusters when available, falls back to raw events.
 
         For each event, finds the closest price at detection time and
         computes percentage change at each impact window.
@@ -63,7 +101,13 @@ class EventImpactAnalyzer:
         Returns:
             List of dicts with event info and price moves.
         """
-        events = self.db.get_events(limit=10000)
+        if self._has_clusters():
+            events = self._get_cluster_events()
+            logger.info("Using %d event clusters for impact analysis", len(events))
+        else:
+            events = self.db.get_events(limit=10000)
+            logger.info("No clusters found, using %d raw events", len(events))
+
         results: list[dict[str, Any]] = []
 
         for event in events:
@@ -101,6 +145,10 @@ class EventImpactAnalyzer:
                     "detected_at": detected_at,
                     "base_price": base_close,
                     "moves": moves,
+                    "summary": event.get("summary", ""),
+                    "sentiment": event.get("sentiment", 0.0),
+                    "article_count": event.get("article_count", 1),
+                    "novelty_score": event.get("novelty_score", 1.0),
                 })
 
         logger.info("Computed price moves for %d event-asset pairs", len(results))

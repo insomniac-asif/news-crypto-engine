@@ -2,11 +2,16 @@
 """CLI script for running data ingestion.
 
 Usage:
-    python scripts/ingest.py                 # Run all collectors once
-    python scripts/ingest.py --schedule      # Run on a schedule (blocks)
-    python scripts/ingest.py --prices-only   # Only collect prices
-    python scripts/ingest.py --rss-only      # Only collect RSS feeds
-    python scripts/ingest.py --stats         # Show database stats
+    python scripts/ingest.py                   # Run all collectors once
+    python scripts/ingest.py --schedule        # Run on a schedule (blocks)
+    python scripts/ingest.py --prices-only     # Only collect prices (CoinGecko)
+    python scripts/ingest.py --ccxt            # Collect prices via CCXT/Binance
+    python scripts/ingest.py --rss-only        # Only collect RSS feeds
+    python scripts/ingest.py --cryptopanic     # Collect from CryptoPanic API
+    python scripts/ingest.py --gdelt           # Backfill from GDELT
+    python scripts/ingest.py --gdelt --days 90 # GDELT with custom lookback
+    python scripts/ingest.py --discover        # Auto-discover new assets from events
+    python scripts/ingest.py --stats           # Show database stats
 """
 
 import argparse
@@ -32,8 +37,12 @@ def main() -> None:
     parser.add_argument("--prices-only", action="store_true", help="Only collect price data")
     parser.add_argument("--rss-only", action="store_true", help="Only collect RSS feeds")
     parser.add_argument("--reddit-only", action="store_true", help="Only collect Reddit posts")
+    parser.add_argument("--ccxt", action="store_true", help="Collect prices via CCXT/Binance")
+    parser.add_argument("--cryptopanic", action="store_true", help="Collect from CryptoPanic API")
+    parser.add_argument("--gdelt", action="store_true", help="Backfill historical news from GDELT")
+    parser.add_argument("--discover", action="store_true", help="Auto-discover new assets from events")
     parser.add_argument("--stats", action="store_true", help="Show database statistics")
-    parser.add_argument("--days", type=int, default=None, help="Days of price history to fetch")
+    parser.add_argument("--days", type=int, default=None, help="Days of history to fetch")
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -87,6 +96,52 @@ def main() -> None:
         print(f"\nReddit collection complete: {total} new posts")
         for sub, count in results.items():
             print(f"  r/{sub}: {count}")
+        return
+
+    if args.ccxt:
+        from src.ingestion.ccxt_collector import CCXTCollector
+
+        collector = CCXTCollector(config, db)
+        results = collector.collect_all(days=args.days)
+        total = sum(results.values())
+        print(f"\nCCXT collection complete: {total} new candles")
+        for symbol, count in sorted(results.items()):
+            print(f"  {symbol}: {count}")
+        return
+
+    if args.cryptopanic:
+        from src.ingestion.cryptopanic_collector import CryptoPanicCollector
+
+        collector = CryptoPanicCollector(config, db)
+        if not collector.is_configured():
+            print("CryptoPanic API token not configured.")
+            print("Set CRYPTOPANIC_API_TOKEN env var or add to config.yaml.")
+            sys.exit(1)
+        count = collector.collect_all()
+        print(f"\nCryptoPanic collection complete: {count} new articles")
+        return
+
+    if args.gdelt:
+        from src.ingestion.gdelt_collector import GDELTCollector
+
+        collector = GDELTCollector(config, db)
+        days = args.days or 30
+        count = collector.collect_historical(days_back=days)
+        print(f"\nGDELT historical backfill complete: {count} new articles ({days} days)")
+        return
+
+    if args.discover:
+        from src.ingestion.asset_discovery import AssetDiscovery
+
+        discovery = AssetDiscovery(db, config)
+        new_assets = discovery.scan_events_for_new_assets()
+        if new_assets:
+            print(f"\nDiscovered {len(new_assets)} new assets:")
+            for asset in new_assets:
+                meta = discovery.get_asset_metadata(asset)
+                print(f"  {asset}: sector={meta['sector']}, cap_tier={meta['cap_tier']}")
+        else:
+            print("\nNo new assets discovered.")
         return
 
     # Default: run all once

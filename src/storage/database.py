@@ -10,7 +10,7 @@ from typing import Any, Generator, Optional
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
 
 SCHEMA_SQL = """
 -- Articles ingested from RSS feeds, Reddit, etc.
@@ -89,6 +89,70 @@ CREATE TABLE IF NOT EXISTS narratives (
 );
 
 CREATE INDEX IF NOT EXISTS idx_narratives_name ON narratives(name);
+
+-- Event clusters: deduplicated canonical events
+CREATE TABLE IF NOT EXISTS event_clusters (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category TEXT NOT NULL,
+    severity INTEGER NOT NULL CHECK(severity BETWEEN 1 AND 5),
+    sentiment REAL DEFAULT 0,
+    first_detected_at TEXT NOT NULL,
+    last_article_at TEXT NOT NULL,
+    article_count INTEGER NOT NULL DEFAULT 1,
+    representative_headline TEXT,
+    novelty_score REAL DEFAULT 1.0,
+    assets_affected TEXT DEFAULT '[]'
+);
+
+CREATE INDEX IF NOT EXISTS idx_clusters_category ON event_clusters(category);
+CREATE INDEX IF NOT EXISTS idx_clusters_first_detected ON event_clusters(first_detected_at);
+CREATE INDEX IF NOT EXISTS idx_clusters_severity ON event_clusters(severity);
+
+-- Maps articles to their event cluster
+CREATE TABLE IF NOT EXISTS article_cluster_map (
+    article_id INTEGER NOT NULL,
+    cluster_id INTEGER NOT NULL,
+    PRIMARY KEY (article_id, cluster_id),
+    FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE,
+    FOREIGN KEY (cluster_id) REFERENCES event_clusters(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_acm_cluster ON article_cluster_map(cluster_id);
+
+-- Source credibility tracking
+CREATE TABLE IF NOT EXISTS source_credibility (
+    source_name TEXT PRIMARY KEY,
+    tier INTEGER NOT NULL DEFAULT 4,
+    weight REAL NOT NULL DEFAULT 0.1
+);
+
+-- Multi-factor signals (Phase 7)
+CREATE TABLE IF NOT EXISTS signals_v2 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cluster_id INTEGER NOT NULL,
+    asset TEXT NOT NULL,
+    direction TEXT NOT NULL CHECK(direction IN ('long', 'short')),
+    confidence TEXT NOT NULL CHECK(confidence IN ('HIGH', 'MEDIUM')),
+    signal_score REAL NOT NULL,
+    news_component REAL NOT NULL DEFAULT 0,
+    market_component REAL NOT NULL DEFAULT 0,
+    narrative_component REAL NOT NULL DEFAULT 0,
+    novelty_component REAL NOT NULL DEFAULT 0,
+    entry_time TEXT NOT NULL,
+    price_at_signal REAL,
+    volume_zscore REAL DEFAULT 0,
+    momentum_1h REAL DEFAULT 0,
+    price_1h_later REAL,
+    price_4h_later REAL,
+    price_24h_later REAL,
+    confirmation_factors TEXT DEFAULT '[]',
+    reasoning TEXT,
+    FOREIGN KEY (cluster_id) REFERENCES event_clusters(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_signals_v2_asset ON signals_v2(asset);
+CREATE INDEX IF NOT EXISTS idx_signals_v2_entry_time ON signals_v2(entry_time);
+CREATE INDEX IF NOT EXISTS idx_signals_v2_score ON signals_v2(signal_score);
 
 -- Schema version tracking
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -519,6 +583,149 @@ class Database:
                 conn.commit()
                 return cursor.lastrowid
 
+    # ── Extended Queries ─────────────────────────────────────────
+
+    def get_events_with_articles(
+        self,
+        category: Optional[str] = None,
+        min_severity: int = 1,
+        asset: Optional[str] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        """Fetch events joined with article data (headline, source, URL).
+
+        Args:
+            category: Filter by event category.
+            min_severity: Minimum severity threshold.
+            asset: Filter to events affecting this asset symbol.
+            since: Only events after this ISO timestamp.
+            until: Only events before this ISO timestamp.
+            limit: Max rows.
+
+        Returns:
+            List of event dicts enriched with article fields.
+        """
+        query = """
+            SELECT e.id, e.article_id, e.category, e.severity, e.summary,
+                   e.assets_affected, e.detected_at,
+                   a.title AS headline, a.source, a.url, a.published_at
+            FROM events e
+            JOIN articles a ON e.article_id = a.id
+            WHERE e.severity >= ?
+        """
+        params: list[Any] = [min_severity]
+
+        if category:
+            query += " AND e.category = ?"
+            params.append(category)
+        if since:
+            query += " AND e.detected_at >= ?"
+            params.append(since)
+        if until:
+            query += " AND e.detected_at <= ?"
+            params.append(until)
+
+        query += " ORDER BY e.detected_at DESC LIMIT ?"
+        params.append(limit)
+
+        with self.connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+            results = []
+            for r in rows:
+                d = dict(r)
+                d["assets_affected"] = json.loads(d["assets_affected"])
+                # Apply asset filter in Python (JSON field)
+                if asset and asset not in d["assets_affected"]:
+                    continue
+                results.append(d)
+            return results
+
+    def get_signals_with_events(
+        self,
+        asset: Optional[str] = None,
+        direction: Optional[str] = None,
+        category: Optional[str] = None,
+        min_confidence: float = 0.0,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        """Fetch signals joined with event data.
+
+        Returns:
+            List of signal dicts enriched with event category, severity, summary.
+        """
+        query = """
+            SELECT s.id AS signal_id, s.event_id, s.asset, s.direction,
+                   s.confidence, s.entry_time, s.price_at_signal,
+                   s.price_1h_later, s.price_4h_later, s.price_24h_later,
+                   e.category, e.severity, e.summary
+            FROM signals s
+            JOIN events e ON s.event_id = e.id
+            WHERE s.confidence >= ?
+        """
+        params: list[Any] = [min_confidence]
+
+        if asset:
+            query += " AND s.asset = ?"
+            params.append(asset)
+        if direction:
+            query += " AND s.direction = ?"
+            params.append(direction)
+        if category:
+            query += " AND e.category = ?"
+            params.append(category)
+        if since:
+            query += " AND s.entry_time >= ?"
+            params.append(since)
+        if until:
+            query += " AND s.entry_time <= ?"
+            params.append(until)
+
+        query += " ORDER BY s.entry_time DESC LIMIT ?"
+        params.append(limit)
+
+        with self.connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_distinct_assets(self) -> list[str]:
+        """Get all distinct asset symbols from events and signals.
+
+        Returns:
+            Sorted list of unique asset symbols.
+        """
+        assets: set[str] = set()
+        with self.connect() as conn:
+            # From events (JSON field)
+            rows = conn.execute(
+                "SELECT DISTINCT assets_affected FROM events"
+            ).fetchall()
+            for r in rows:
+                for a in json.loads(r["assets_affected"]):
+                    assets.add(a)
+            # From signals
+            rows = conn.execute(
+                "SELECT DISTINCT asset FROM signals"
+            ).fetchall()
+            for r in rows:
+                assets.add(r["asset"])
+        return sorted(assets)
+
+    def get_last_ingestion_time(self) -> Optional[str]:
+        """Get the most recent article ingestion timestamp.
+
+        Returns:
+            ISO timestamp string or None if no articles.
+        """
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT MAX(ingested_at) AS latest FROM articles"
+            ).fetchone()
+            return row["latest"] if row else None
+
     # ── Maintenance ────────────────────────────────────────────────
 
     def enforce_retention(self, retention_days: int = 90) -> int:
@@ -554,7 +761,7 @@ class Database:
         Returns:
             Dict mapping table names to row counts.
         """
-        tables = ["articles", "events", "prices", "signals", "narratives"]
+        tables = ["articles", "events", "prices", "signals", "signals_v2", "narratives"]
         stats = {}
         with self.connect() as conn:
             for table in tables:

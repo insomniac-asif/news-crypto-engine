@@ -3,8 +3,12 @@
 Simulates trading based on event signals and measures performance.
 No live execution, no order book simulation — just: "if I entered
 here and exited here, what happened?"
+
+Operates on event_clusters when available (Phase 6), falling back
+to raw events for backward compatibility.
 """
 
+import json
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -97,11 +101,10 @@ class Backtester:
         exit_h = exit_hours or self.exit_hours
         cost_pct = self.spread_pct + self.slippage_pct
 
-        # Get events and their signals
-        events = self.db.get_events(
+        # Use clusters when available, fall back to raw events
+        events = self._get_events_for_backtest(
             category=category,
             min_severity=min_severity,
-            limit=10000,
         )
 
         trades: list[Trade] = []
@@ -170,6 +173,54 @@ class Backtester:
             result.total_trades, result.total_return_pct, result.win_rate * 100,
         )
         return result
+
+    def _get_events_for_backtest(
+        self,
+        category: Optional[str] = None,
+        min_severity: int = 1,
+    ) -> list[dict[str, Any]]:
+        """Get events for backtesting — clusters if available, else raw events.
+
+        Args:
+            category: Filter by event category.
+            min_severity: Minimum severity.
+
+        Returns:
+            List of event-like dicts.
+        """
+        try:
+            with self.db.connect() as conn:
+                count = conn.execute("SELECT COUNT(*) FROM event_clusters").fetchone()[0]
+                if count > 0:
+                    query = """
+                        SELECT id, category, severity,
+                               first_detected_at AS detected_at,
+                               assets_affected,
+                               representative_headline AS summary
+                        FROM event_clusters
+                        WHERE severity >= ?
+                    """
+                    params: list[Any] = [min_severity]
+                    if category:
+                        query += " AND category = ?"
+                        params.append(category)
+                    query += " ORDER BY first_detected_at DESC LIMIT 10000"
+                    rows = conn.execute(query, params).fetchall()
+                    results = []
+                    for r in rows:
+                        d = dict(r)
+                        d["assets_affected"] = json.loads(d.get("assets_affected", "[]"))
+                        results.append(d)
+                    logger.info("Backtesting on %d event clusters", len(results))
+                    return results
+        except Exception:
+            pass
+
+        return self.db.get_events(
+            category=category,
+            min_severity=min_severity,
+            limit=10000,
+        )
 
     def _compute_metrics(
         self,

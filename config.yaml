@@ -81,6 +81,37 @@ reddit:
   # Minimum score to ingest
   min_score: 10
 
+# CryptoPanic API (Phase 9)
+cryptopanic:
+  # Get a free API token at https://cryptopanic.com/developers/api/
+  api_token: "${CRYPTOPANIC_API_TOKEN}"
+  rate_limit_calls: 5
+  rate_limit_period: 60
+  max_pages: 3
+
+# CCXT exchange data (Phase 9)
+ccxt:
+  exchange: "kraken"
+  # Default timeframe: 1h for backtesting, use 15m for signal decay analysis
+  timeframe: "1h"
+  rate_limit_ms: 1200
+  initial_history_days: 30
+  # Override symbol → pair mappings if needed
+  # symbol_map:
+  #   BTC: "BTC/USDT"
+
+# GDELT historical news (Phase 9)
+gdelt:
+  search_terms:
+    - "cryptocurrency"
+    - "bitcoin"
+    - "ethereum"
+    - "crypto regulation"
+    - "SEC crypto"
+    - "stablecoin"
+  max_records: 250
+  request_delay: 5.0  # seconds between requests (be polite)
+
 # Scheduler settings
 scheduler:
   # Collection intervals in minutes
@@ -122,6 +153,82 @@ nlp:
       approved: 2.5
       etf: 1.5
 
+# Event clustering / deduplication (Phase 6)
+clustering:
+  # Cosine similarity threshold for grouping articles as same event
+  # Tuned on real RSS data (117 articles, mostly short descriptions):
+  #   True duplicates: 0.31-0.64 with TF-IDF cosine
+  #   False positives start below 0.28
+  # 0.30 catches SocksEscort(0.35), NK sanctions(0.32), Custodia(0.31)
+  # while avoiding Paraguay/BTC-tax(0.28), Bitcoin-miners/AI(0.26)
+  similarity_threshold: 0.30
+  # Max time window for articles to be considered same event
+  time_window_hours: 48
+  # Novelty decay rate (lambda): novelty = exp(-lambda * hours)
+  # At 0.1: ~50% decay after 7 hours, ~10% after 23 hours
+  novelty_lambda: 0.1
+
+# Source credibility tiers
+source_credibility:
+  tier_1:
+    weight: 1.0
+    sources:
+      - "Reuters"
+      - "Bloomberg"
+      - "SEC"
+      - "CFTC"
+      - "Federal Reserve"
+      - "Treasury"
+      - "Binance Blog"
+      - "Coinbase Blog"
+      - "Kraken Blog"
+  tier_2:
+    weight: 0.7
+    sources:
+      - "CoinDesk"
+      - "The Block"
+      - "CoinTelegraph"
+      - "Decrypt"
+      - "Bitcoin Magazine"
+      - "Wall Street Journal"
+      - "Financial Times"
+      - "New York Times"
+      - "Washington Post"
+  tier_3:
+    weight: 0.4
+    sources:
+      - "reddit/cryptocurrency"
+      - "reddit/bitcoin"
+      - "reddit/ethereum"
+      - "Bitcoinist"
+      - "NewsBTC"
+      - "U.Today"
+      - "Crypto Briefing"
+      - "BeInCrypto"
+      - "AMBCrypto"
+  tier_4:
+    weight: 0.1
+    sources: []
+
+# Multi-factor signal model (Phase 7)
+signal_model:
+  weights:
+    news: 0.40
+    market: 0.25
+    narrative: 0.20
+    novelty: 0.15
+  thresholds:
+    high: 0.7       # score > 0.7 = HIGH confidence
+    medium: 0.4     # score 0.4-0.7 = MEDIUM confidence
+    noise: 0.4      # score < 0.4 = no signal
+  # Minimum factors that must align (out of: news, market, narrative)
+  min_confirmation_factors: 2
+  # Market confirmation settings
+  volume_lookback: 20          # periods for volume z-score baseline
+  volume_zscore_threshold: 1.0 # z-score required for volume confirmation
+  atr_period: 14               # periods for Average True Range
+  high_vol_atr_multiplier: 1.5 # multiplier for high-volatility regime
+
 # Event classification (Phase 2)
 event_classification:
   # Severity thresholds
@@ -148,6 +255,22 @@ backtester:
   position_size: 0.10
   # Default exit: time-based (hours)
   default_exit_hours: 24
+
+# Enhanced backtester (Phase 8)
+enhanced_backtester:
+  # Latency buffer: minutes between event detection and simulated entry
+  latency_minutes: 15
+  # Cost model (per side unless noted)
+  fee_pct: 0.10            # trading fee per side
+  spread_pct: 0.05         # bid-ask spread cost
+  slippage_pct: 0.05       # slippage cost
+  # Total round-trip: 2*0.10 + 0.05 + 0.05 = 0.30%
+  # Position sizing mode: fixed, confidence, kelly
+  sizing_mode: "fixed"
+  base_position: 0.10      # 10% of portfolio per trade
+  # Walk-forward parameters
+  wf_min_train_days: 14    # minimum training window
+  wf_test_days: 7          # out-of-sample test window
 
 # Dashboard (Phase 4)
 dashboard:

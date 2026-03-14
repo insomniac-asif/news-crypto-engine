@@ -2,8 +2,12 @@
 
 Uses event classification, severity, and historical impact data to
 generate directional trading signals with confidence scores.
+
+Operates on event_clusters when available (Phase 6), multiplying
+signal strength by novelty score to discount stale news.
 """
 
+import json
 import logging
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -149,8 +153,47 @@ class SignalGenerator:
 
         return signals
 
+    def _has_clusters(self) -> bool:
+        """Check if event_clusters table has data."""
+        try:
+            with self.db.connect() as conn:
+                count = conn.execute("SELECT COUNT(*) FROM event_clusters").fetchone()[0]
+                return count > 0
+        except Exception:
+            return False
+
+    def _get_cluster_events(self, since: Optional[str] = None) -> list[dict[str, Any]]:
+        """Get cluster-based events for signal generation.
+
+        Returns:
+            List of dicts shaped like event dicts but from clusters.
+        """
+        query = """
+            SELECT id, category, severity, first_detected_at AS detected_at,
+                   assets_affected, representative_headline AS summary,
+                   novelty_score
+            FROM event_clusters
+            WHERE 1=1
+        """
+        params: list[Any] = []
+        if since:
+            query += " AND first_detected_at >= ?"
+            params.append(since)
+        query += " ORDER BY first_detected_at DESC LIMIT 10000"
+
+        with self.db.connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+            results = []
+            for r in rows:
+                d = dict(r)
+                d["assets_affected"] = json.loads(d.get("assets_affected", "[]"))
+                results.append(d)
+            return results
+
     def generate_all(self, since: Optional[str] = None) -> list[Signal]:
         """Generate signals for all recent events.
+
+        Uses event_clusters when available, otherwise raw events.
 
         Args:
             since: Only process events detected after this timestamp.
@@ -158,11 +201,21 @@ class SignalGenerator:
         Returns:
             List of all generated signals.
         """
-        events = self.db.get_events(since=since, limit=10000)
+        if self._has_clusters():
+            events = self._get_cluster_events(since=since)
+            logger.info("Generating signals from %d event clusters", len(events))
+        else:
+            events = self.db.get_events(since=since, limit=10000)
+
         all_signals: list[Signal] = []
 
         for event in events:
             signals = self.generate_for_event(event)
+            # Apply novelty decay to signal confidence
+            novelty = event.get("novelty_score", 1.0)
+            if novelty is not None and novelty < 1.0:
+                for s in signals:
+                    s.confidence = round(s.confidence * novelty, 3)
             all_signals.extend(signals)
 
         logger.info("Generated %d signals from %d events", len(all_signals), len(events))

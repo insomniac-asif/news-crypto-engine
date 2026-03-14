@@ -16,6 +16,7 @@ project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
 
 from src.analysis.event_impact import EventImpactAnalyzer
+from src.analysis.multi_factor_signal import MultiFactorSignalGenerator
 from src.analysis.narrative_tracker import NarrativeTracker
 from src.analysis.signal_generator import SignalGenerator
 from src.config import load_config, setup_logging
@@ -28,7 +29,8 @@ def main() -> None:
     parser.add_argument("--config", default="config.yaml", help="Path to config file")
     parser.add_argument("--severity", type=int, default=1, help="Minimum event severity (1-5)")
     parser.add_argument("--narratives", action="store_true", help="Run narrative tracking")
-    parser.add_argument("--signals", action="store_true", help="Generate and store signals")
+    parser.add_argument("--signals", action="store_true", help="Generate and store signals (legacy)")
+    parser.add_argument("--signals-v2", action="store_true", help="Generate multi-factor signals")
     parser.add_argument("--days", type=int, default=90, help="Lookback period in days")
     args = parser.parse_args()
 
@@ -42,6 +44,12 @@ def main() -> None:
         tracker = NarrativeTracker(db, config)
         report = tracker.generate_report(days=args.days)
         print(report)
+        return
+
+    if args.signals_v2:
+        generator = MultiFactorSignalGenerator(db, config)
+        count = generator.generate_and_store()
+        print(f"\nGenerated and stored {count} multi-factor signals.")
         return
 
     if args.signals:

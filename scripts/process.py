@@ -23,6 +23,7 @@ sys.path.insert(0, str(project_root))
 from src.config import load_config, setup_logging
 from src.processing.entity_extractor import EntityExtractor
 from src.processing.event_classifier import EventClassifier
+from src.processing.event_clusterer import EventClusterer
 from src.processing.sentiment import SentimentAnalyzer
 from src.processing.text_cleaner import clean_article
 from src.storage.database import Database
@@ -112,9 +113,19 @@ def process_articles(
             logger.exception("Error processing article %d: %s",
                              article["id"], article["title"][:80])
 
+    # Step 6: Cluster events (deduplication)
+    clusterer = EventClusterer(db, config)
+    clusters = clusterer.cluster_events()
+    clusters_created = len(clusters)
+    logger.info("Created %d event clusters from processed articles", clusters_created)
+
+    # Update novelty scores on all clusters
+    clusterer.update_novelty_scores()
+
     stats = {
         "processed": processed,
         "events_created": events_created,
+        "clusters_created": clusters_created,
         "errors": errors,
     }
     logger.info("Processing complete: %s", stats)
@@ -152,6 +163,7 @@ def main() -> None:
     parser.add_argument("--config", default="config.yaml", help="Path to config file")
     parser.add_argument("--limit", type=int, default=500, help="Max articles to process")
     parser.add_argument("--reprocess", action="store_true", help="Re-process all articles")
+    parser.add_argument("--cluster-only", action="store_true", help="Only run clustering on existing events")
     parser.add_argument("--stats", action="store_true", help="Show processing statistics")
     args = parser.parse_args()
 
@@ -165,11 +177,20 @@ def main() -> None:
         show_stats(db)
         return
 
+    if args.cluster_only:
+        clusterer = EventClusterer(db, config)
+        clusters = clusterer.cluster_events()
+        clusterer.update_novelty_scores()
+        print(f"\nClustering complete!")
+        print(f"  Clusters created: {len(clusters)}")
+        return
+
     results = process_articles(db, config, limit=args.limit, reprocess=args.reprocess)
 
     print(f"\nProcessing complete!")
     print(f"  Articles processed: {results['processed']}")
     print(f"  Events created:     {results['events_created']}")
+    print(f"  Clusters created:   {results.get('clusters_created', 0)}")
     if results.get("errors"):
         print(f"  Errors:             {results['errors']}")
 
