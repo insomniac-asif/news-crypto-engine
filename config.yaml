@@ -1,0 +1,156 @@
+# News Crypto Engine Configuration
+# All settings in one place — no hardcoded values in source code
+
+database:
+  path: "data/news_crypto.db"
+  # Auto-delete articles older than this many days (saves disk)
+  retention_days: 90
+
+# Target assets to track
+assets:
+  symbols:
+    - BTC
+    - ETH
+    - SOL
+    - BNB
+    - XRP
+    - ADA
+    - DOGE
+    - AVAX
+    - DOT
+    - MATIC
+  # CoinGecko IDs mapped to symbols
+  coingecko_ids:
+    BTC: bitcoin
+    ETH: ethereum
+    SOL: solana
+    BNB: binancecoin
+    XRP: ripple
+    ADA: cardano
+    DOGE: dogecoin
+    AVAX: avalanche-2
+    DOT: polkadot
+    MATIC: matic-network
+
+# Price data collection
+price_collection:
+  # CoinGecko free API (no key required, 10-30 calls/min)
+  coingecko:
+    base_url: "https://api.coingecko.com/api/v3"
+    rate_limit_calls: 10
+    rate_limit_period: 60  # seconds
+    retry_attempts: 3
+    retry_delay: 5  # seconds
+  # Candle granularity: hourly
+  granularity: "hourly"
+  # How many days of history to fetch on first run
+  initial_history_days: 30
+
+# RSS feed sources
+rss_feeds:
+  - name: "CoinDesk"
+    url: "https://www.coindesk.com/arc/outboundfeeds/rss/"
+    category: "general"
+  - name: "CoinTelegraph"
+    url: "https://cointelegraph.com/rss"
+    category: "general"
+  - name: "The Block"
+    url: "https://www.theblock.co/rss.xml"
+    category: "general"
+  - name: "Bitcoin Magazine"
+    url: "https://bitcoinmagazine.com/feed"
+    category: "bitcoin"
+  - name: "Decrypt"
+    url: "https://decrypt.co/feed"
+    category: "general"
+
+# Reddit collection
+reddit:
+  # Create an app at https://www.reddit.com/prefs/apps/
+  # Set these via environment variables for security:
+  #   REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT
+  client_id: "${REDDIT_CLIENT_ID}"
+  client_secret: "${REDDIT_CLIENT_SECRET}"
+  user_agent: "news-crypto-engine/1.0"
+  subreddits:
+    - "cryptocurrency"
+    - "bitcoin"
+    - "ethereum"
+  # Fetch top N posts per subreddit per collection run
+  posts_per_sub: 25
+  # Minimum score to ingest
+  min_score: 10
+
+# Scheduler settings
+scheduler:
+  # Collection intervals in minutes
+  price_interval: 15
+  rss_interval: 30
+  reddit_interval: 60
+
+# Logging
+logging:
+  level: "INFO"
+  format: "%(asctime)s [%(name)s] %(levelname)s: %(message)s"
+  file: "data/engine.log"
+
+# NLP settings (Phase 2)
+nlp:
+  spacy_model: "en_core_web_sm"
+  sentiment:
+    model: "vader"
+    # Crypto-specific lexicon adjustments
+    crypto_lexicon:
+      moon: 2.5
+      mooning: 3.0
+      lambo: 2.0
+      hodl: 1.5
+      fud: -2.0
+      rug: -3.5
+      rugpull: -4.0
+      rekt: -3.0
+      dump: -2.5
+      pump: 1.5
+      bullish: 2.5
+      bearish: -2.5
+      scam: -3.5
+      hack: -3.0
+      exploit: -3.0
+      adoption: 2.0
+      partnership: 1.5
+      ban: -3.0
+      approved: 2.5
+      etf: 1.5
+
+# Event classification (Phase 2)
+event_classification:
+  # Severity thresholds
+  default_severity: 2
+
+# Analysis settings (Phase 3)
+analysis:
+  # Time windows to measure price impact (hours)
+  impact_windows:
+    - 1
+    - 4
+    - 24
+  # Minimum sample size for statistical significance
+  min_sample_size: 10
+  # P-value threshold
+  significance_level: 0.05
+
+# Backtester settings (Phase 3)
+backtester:
+  # Transaction cost estimates
+  spread_pct: 0.10
+  slippage_pct: 0.05
+  # Default position sizing (fraction of portfolio)
+  position_size: 0.10
+  # Default exit: time-based (hours)
+  default_exit_hours: 24
+
+# Dashboard (Phase 4)
+dashboard:
+  host: "localhost"
+  port: 8501
+  title: "Crypto News Research Engine"
