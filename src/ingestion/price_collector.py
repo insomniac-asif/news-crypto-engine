@@ -82,7 +82,8 @@ class PriceCollector:
             try:
                 resp = self._session.get(url, params=params, timeout=30)
                 if resp.status_code == 429:
-                    wait = self.retry_delay * attempt * 2
+                    # Exponential backoff: 30s, 60s, 120s, 240s, 480s
+                    wait = self.retry_delay * (2 ** attempt)
                     logger.warning("Rate limited (429), waiting %ds (attempt %d/%d)",
                                    wait, attempt, self.retry_attempts)
                     time.sleep(wait)

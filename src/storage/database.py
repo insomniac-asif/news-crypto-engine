@@ -240,6 +240,7 @@ class Database:
         severity: int,
         summary: Optional[str] = None,
         assets_affected: Optional[list[str]] = None,
+        detected_at: Optional[str] = None,
     ) -> int:
         """Insert a classified event.
 
@@ -249,17 +250,25 @@ class Database:
             severity: Severity rating 1-5.
             summary: Brief event summary.
             assets_affected: List of affected asset symbols.
+            detected_at: Optional ISO timestamp override (defaults to now).
 
         Returns:
             The new event's row ID.
         """
         assets_json = json.dumps(assets_affected or [])
         with self.connect() as conn:
-            cursor = conn.execute(
-                """INSERT INTO events (article_id, category, severity, summary, assets_affected)
-                   VALUES (?, ?, ?, ?, ?)""",
-                (article_id, category, severity, summary, assets_json),
-            )
+            if detected_at:
+                cursor = conn.execute(
+                    """INSERT INTO events (article_id, category, severity, summary, assets_affected, detected_at)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (article_id, category, severity, summary, assets_json, detected_at),
+                )
+            else:
+                cursor = conn.execute(
+                    """INSERT INTO events (article_id, category, severity, summary, assets_affected)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (article_id, category, severity, summary, assets_json),
+                )
             conn.commit()
             event_id = cursor.lastrowid
             logger.debug("Inserted event %d: %s (severity=%d)", event_id, category, severity)

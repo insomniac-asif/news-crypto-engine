@@ -37,10 +37,10 @@ price_collection:
   # CoinGecko free API (no key required, 10-30 calls/min)
   coingecko:
     base_url: "https://api.coingecko.com/api/v3"
-    rate_limit_calls: 10
-    rate_limit_period: 60  # seconds
-    retry_attempts: 3
-    retry_delay: 5  # seconds
+    rate_limit_calls: 5
+    rate_limit_period: 65  # seconds — CoinGecko free tier is ~5-10/min
+    retry_attempts: 5
+    retry_delay: 15  # seconds — generous backoff on 429s
   # Candle granularity: hourly
   granularity: "hourly"
   # How many days of history to fetch on first run
