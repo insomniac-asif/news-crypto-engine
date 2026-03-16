@@ -1,0 +1,20 @@
+{
+  "name": "severity_emphasis",
+  "direction_map": {
+    "ADOPTION": "bullish",
+    "PROTOCOL": "bullish",
+    "EXCHANGE": "neutral",
+    "SENTIMENT": "neutral",
+    "MARKET_STRUCTURE": "neutral",
+    "MACRO": "bearish",
+    "REGULATORY": "bearish",
+    "SECURITY": "bearish"
+  },
+  "min_severity": 2,
+  "min_sources": 1,
+  "severity_weight": 0.9,
+  "trust_weight": 0.6,
+  "novelty_weight": 0.5,
+  "source_boost_per": 0.08,
+  "source_boost_cap": 0.25
+}

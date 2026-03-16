@@ -17,6 +17,24 @@ from src.analysis.signal_generator import SIGNAL_RULES
 from src.processing.source_credibility import SourceCredibility
 from src.storage.database import Database
 
+try:
+    from dashboard_reporter import ProjectReporter
+    _reporter: Optional[ProjectReporter] = None
+except ImportError:
+    _reporter = None
+
+
+def get_reporter() -> Optional["ProjectReporter"]:
+    """Lazy-init the dashboard reporter for crypto signals."""
+    global _reporter
+    if _reporter is None:
+        try:
+            from dashboard_reporter import ProjectReporter
+            _reporter = ProjectReporter(project="crypto")
+        except Exception:
+            pass
+    return _reporter
+
 logger = logging.getLogger(__name__)
 
 # Default factor weights
@@ -135,9 +153,36 @@ class MultiFactorSignalGenerator:
         signals = self.generate_all(since=since)
         stored = 0
 
+        reporter = get_reporter()
         for sig in signals:
             self._store_signal(sig)
             stored += 1
+            # Report signal to dashboard
+            if reporter:
+                try:
+                    reporter.log_signal({
+                        "instrument": sig.asset,
+                        "signal_type": "multi_factor",
+                        "direction": sig.direction,
+                        "confidence": sig.signal_score,
+                        "timestamp": sig.entry_time,
+                        "metadata": {
+                            "confidence_label": sig.confidence,
+                            "news_component": sig.news_component,
+                            "market_component": sig.market_component,
+                            "narrative_component": sig.narrative_component,
+                            "novelty_component": sig.novelty_component,
+                            "confirmation_factors": sig.confirmation_factors,
+                            "reasoning": sig.reasoning,
+                            "category": sig.category,
+                            "severity": sig.severity,
+                            "price_at_signal": sig.price_at_signal,
+                            "volume_zscore": sig.volume_zscore,
+                            "momentum_1h": sig.momentum_1h,
+                        },
+                    })
+                except Exception:
+                    logger.debug("Failed to report signal to dashboard", exc_info=True)
 
         logger.info("Stored %d multi-factor signals", stored)
         return stored

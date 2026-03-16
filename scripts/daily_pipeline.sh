@@ -32,8 +32,17 @@ python scripts/process.py >> "$LOG" 2>&1 || echo "  Processing failed" >> "$LOG"
 echo ">> Clustering..." >> "$LOG"
 python scripts/process.py --cluster-only >> "$LOG" 2>&1 || echo "  Clustering failed" >> "$LOG"
 
+echo ">> Multi-factor signals..." >> "$LOG"
+python scripts/analyze.py --signals-v2 >> "$LOG" 2>&1 || echo "  Signal generation skipped" >> "$LOG"
+
+echo ">> Predictions + grading..." >> "$LOG"
+python scripts/predict.py >> "$LOG" 2>&1 || echo "  Predictions skipped" >> "$LOG"
+
 echo ">> Stats:" >> "$LOG"
 python scripts/ingest.py --stats >> "$LOG" 2>&1
+
+echo ">> Daily snapshot to dashboard..." >> "$LOG"
+python scripts/daily_snapshot.py >> "$LOG" 2>&1 || echo "  Snapshot skipped" >> "$LOG"
 
 echo "Pipeline complete: $(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$LOG"
 echo "========================================" >> "$LOG"

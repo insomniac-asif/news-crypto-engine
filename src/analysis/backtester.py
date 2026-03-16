@@ -17,6 +17,24 @@ import numpy as np
 
 from src.storage.database import Database
 
+try:
+    from dashboard_reporter import ProjectReporter
+    _reporter: Optional[ProjectReporter] = None
+except ImportError:
+    _reporter = None
+
+
+def _get_reporter() -> Optional["ProjectReporter"]:
+    """Lazy-init the dashboard reporter for crypto backtested trades."""
+    global _reporter
+    if _reporter is None:
+        try:
+            from dashboard_reporter import ProjectReporter
+            _reporter = ProjectReporter(project="crypto")
+        except Exception:
+            pass
+    return _reporter
+
 logger = logging.getLogger(__name__)
 
 
@@ -172,6 +190,32 @@ class Backtester:
             "Backtest complete: %d trades, %.2f%% return, %.1f%% win rate",
             result.total_trades, result.total_return_pct, result.win_rate * 100,
         )
+
+        # Report simulated trades to dashboard
+        reporter = _get_reporter()
+        if reporter and trades:
+            for t in trades:
+                try:
+                    reporter.log_trade({
+                        "instrument": t.asset,
+                        "direction": t.direction,
+                        "size": self.position_size,
+                        "entry_price": t.entry_price,
+                        "exit_price": t.exit_price,
+                        "pnl": t.pnl_pct,
+                        "entry_time": t.entry_time,
+                        "exit_time": t.exit_time,
+                        "metadata": {
+                            "simulated": True,
+                            "category": t.category,
+                            "severity": t.severity,
+                            "exit_hours": exit_h,
+                            "cost_pct": cost_pct,
+                        },
+                    })
+                except Exception:
+                    logger.debug("Failed to report backtest trade to dashboard", exc_info=True)
+
         return result
 
     def _get_events_for_backtest(

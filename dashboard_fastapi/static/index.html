@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crypto News Engine</title>
+    <link rel="stylesheet" href="/static/style.css?v=2">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Patrick+Hand&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+</head>
+<body>
+
+    <!-- Notice Bar (Header) -->
+    <header class="notice-bar">
+        <div class="notice-left">
+            <span class="notice-title">&#128240; Crypto News Engine</span>
+            <span id="status-dot" class="status-dot offline"></span>
+            <span id="status-label" class="notice-status-text">Connecting...</span>
+        </div>
+        <div class="notice-right">
+            <div class="session-badge">
+                <span id="pipeline-status">Pipeline: --</span>
+            </div>
+            <div class="notice-clock">
+                <span id="clock">--:--:--</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Tab Bar -->
+    <nav class="drawer-tabs">
+        <button class="dtab active" data-tab="overview">Overview</button>
+        <button class="dtab" data-tab="news">News</button>
+        <button class="dtab" data-tab="signals">Signals</button>
+        <button class="dtab" data-tab="predictions">Predictions</button>
+        <button class="dtab" data-tab="analysis">Analysis</button>
+        <button class="dtab" data-tab="projects">Projects</button>
+    </nav>
+
+    <!-- Main Content -->
+    <main id="content">
+        <div class="loading-msg">Loading...</div>
+    </main>
+
+    <!-- Detail Modal -->
+    <div id="modal-overlay" class="modal-overlay hidden">
+        <div id="modal-content" class="modal-content">
+            <button id="modal-close" class="modal-close">&times;</button>
+            <div id="modal-body"></div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="site-footer">
+        <span class="footer-version">v1.0.0 &mdash; Crypto News Sentiment Engine</span>
+        <span class="footer-refresh">Last updated: <span id="last-refresh">--</span></span>
+    </footer>
+
+    <script src="/static/main.js?v=2"></script>
+</body>
+</html>
