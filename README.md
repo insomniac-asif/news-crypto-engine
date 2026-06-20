@@ -85,6 +85,12 @@ Run the experiments yourself:
 python scripts/experiment.py --run all --report --format md --output results.md
 ```
 
+> **Note on reproducibility:** the SQLite database (`data/`) is gitignored, so a
+> fresh clone starts empty — `experiment.py` will report `n_windows=0` until you
+> ingest data first (`python scripts/ingest.py`, needs an internet connection and
+> some time). The headline numbers above come from the author's populated DB; they
+> reproduce only after ingestion, not on a clean checkout.
+
 ## Architecture
 
 ```mermaid
